@@ -8,6 +8,7 @@ public class Player : MonoBehaviour
     public GameObject[] weapons;
     public bool[] hasWeapons;
     public GameObject[] grenades;
+    public Camera followCamera;
 
     // 플레이어가 가지고 있는 수치
     public int ammo;
@@ -26,6 +27,8 @@ public class Player : MonoBehaviour
 
     bool wDown;
     bool jDown;
+    bool fDown;
+    bool rDown;
     bool iDown;
     bool sDown1;
     bool sDown2;
@@ -34,6 +37,8 @@ public class Player : MonoBehaviour
     bool isJump;
     bool isDodge;
     bool isSwap;
+    bool isReload;
+    bool isFireReady = true;
 
     Vector3 moveVec;
     Vector3 dodgeVec;
@@ -42,8 +47,9 @@ public class Player : MonoBehaviour
     Animator anim;
 
     GameObject nearObject;
-    GameObject equipWeapon;
+    Weapon equipWeapon;
     int equipWeaponIndex = -1;      // 망치 인덱스 번호가 0번이기 떄문에 -1로 초기화
+    float fireDelay;
 
     // Start is called before the first frame update
     void Awake()
@@ -59,6 +65,8 @@ public class Player : MonoBehaviour
         Move();
         Turn();
         Jump();
+        Attack();
+        Reload();
         Dodge();
         Swap();
         Interaction();
@@ -71,6 +79,8 @@ public class Player : MonoBehaviour
         vAxis = Input.GetAxisRaw("Vertical");
         wDown = Input.GetButton("Walk");
         jDown = Input.GetButtonDown("Jump");
+        fDown = Input.GetButton("Fire1");
+        rDown = Input.GetButtonDown("Reload");
         iDown = Input.GetButtonDown("Interaction");
         sDown1 = Input.GetButtonDown("Swap1");
         sDown2 = Input.GetButtonDown("Swap2");
@@ -85,7 +95,7 @@ public class Player : MonoBehaviour
         {
             moveVec = dodgeVec;
         }
-        if (isSwap)
+        if (isSwap || isReload || !isFireReady)
         {
             moveVec = Vector3.zero;
         }
@@ -99,6 +109,19 @@ public class Player : MonoBehaviour
     void Turn()
     {
         transform.LookAt(transform.position + moveVec); // LookAt : 지정 된 벡터를 향해서 회전시켜주는 함수
+        // 마우스에 의한 회전
+        Ray ray = followCamera.ScreenPointToRay(Input.mousePosition);
+        RaycastHit rayHit;
+
+        if (fDown)          // 공격시에만 돌아보게 만들기
+        {
+            if (Physics.Raycast(ray, out rayHit, 100))
+            {
+                Vector3 nextVec = rayHit.point - transform.position;        // rayHit.point : ray가 닿은 지점
+                nextVec.y = 0;                                              // RayHit의 높이는 무시하도록 y축 값을 0으로 초기화
+                transform.LookAt(transform.position + nextVec);             // raycast를 바로 안쓰고 상대위치를 활용해서 씀
+            }
+        }
     }
 
     void Jump()
@@ -110,6 +133,48 @@ public class Player : MonoBehaviour
             anim.SetTrigger("doJump");
             isJump = true;
         }
+    }
+
+    void Attack()
+    {
+        if (equipWeapon == null) return;
+
+        fireDelay += Time.deltaTime;                    // 공격 딜레이에 시간을 더해주고
+        isFireReady = equipWeapon.rate < fireDelay;     // 공격 가능 여부 확인 (공격속도보다 딜레이시간이 크다 == 공격 준비가 되었다)
+
+        if (fDown && isFireReady && !isDodge && !isSwap)
+        {
+            equipWeapon.Use();
+            anim.SetTrigger(equipWeapon.type == Weapon.Type.Melee ? "doSwing" : "doShot");      // 삼항연산자 
+            fireDelay = 0;                              // 공격 딜레이를 0으로 돌려서 다음 공격까지 기다리도록 작성
+        }
+
+    }
+
+    void Reload()
+    {
+        if (equipWeapon == null)
+            return;
+        if (equipWeapon.type == Weapon.Type.Melee)
+            return;
+        if (ammo == 0)
+            return;
+
+        if (rDown && !isJump && !isDodge && !isSwap && isFireReady)
+        {
+            anim.SetTrigger("doReload");
+            isReload = true;
+
+            Invoke("ReloadOut", 2f);
+        }
+    }
+
+    void ReloadOut()
+    {
+        int reAmmo = ammo < equipWeapon.maxAmmo ? ammo : equipWeapon.maxAmmo;
+        equipWeapon.curAmmo = reAmmo;
+        ammo -= reAmmo;
+        isReload = false;
     }
 
     void Dodge()
@@ -209,12 +274,12 @@ public class Player : MonoBehaviour
         {
             if (equipWeapon != null)            // 빈손일경우 equipWeapon이 없기 때문에 예외 처리
             {
-                equipWeapon.SetActive(false);
+                equipWeapon.gameObject.SetActive(false);
             }
 
             equipWeaponIndex = weaponIndex;
-            equipWeapon = weapons[weaponIndex];
-            equipWeapon.SetActive(true);
+            equipWeapon = weapons[weaponIndex].GetComponent<Weapon>();
+            equipWeapon.gameObject.SetActive(true);
 
             anim.SetTrigger("doSwap");
 
